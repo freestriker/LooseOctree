@@ -3,6 +3,9 @@
     "dependencies": [
         {
             "name": "glm"
+        },
+        {
+            "name": "boost-type-traits"
         }
     ]
 }

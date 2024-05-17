@@ -63,4 +63,11 @@ target_sources(Test PRIVATE "${ALL_SOURCE_FILE_PATHS}")
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(Test PUBLIC glm::glm)
 
+# find_package(Boost REQUIRED COMPONENTS type-traits)
+# target_link_libraries(Test PRIVATE Boost::boost Boost::type-traits)
+# find_package(Boost COMPONENTS type-traits REQUIRED)
+# target_link_libraries(Test PUBLIC Boost::boost Boost::type-traits)
+find_package(Boost REQUIRED)
+target_link_libraries(Test PRIVATE Boost::boost)
+    
 set_property(TARGET Test PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
