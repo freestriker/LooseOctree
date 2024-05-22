@@ -3,6 +3,7 @@
 #include <boost/type_traits.hpp>
 #include <glm/glm.hpp>
 #include <vector>
+#include <array>
 
 template<typename TElement, typename TSemantics>
 class LooseOctree
@@ -78,7 +79,7 @@ private:
 	std::vector<std::vector<TElement>> elementVectors;
 	// Compacted indexs
 	std::vector<NodeIndex> freeNodeStartIndexs;
-	const std::vector<OffsetAndExtent> levelOffsetAndExtents;
+	const std::array<OffsetAndExtent, TSemantics::MaxDepthCount> levelOffsetAndExtents;
 
 	static inline NodeIndex ToCompactNodeIndex(const NodeIndex nodeIndex)
 	{
@@ -119,11 +120,11 @@ private:
 		freeNodeStartIndexs.emplace_back(ToCompactNodeIndex(nodeStartIndex));
 	}
 
-	static inline std::vector<OffsetAndExtent> BuildOffsetAndExtents(const float extent)
+	static inline std::array<OffsetAndExtent, TSemantics::MaxDepthCount> BuildOffsetAndExtents(const float extent)
 	{
 		float parentExtent = extent;
 		
-		std::vector<OffsetAndExtent> offsetAndExtents{ TSemantics::MaxDepthCount };
+		std::array<OffsetAndExtent, TSemantics::MaxDepthCount> offsetAndExtents{ };
 		offsetAndExtents[0] = OffsetAndExtent(0, extent);
 		for(uint32_t depthIndex = 1; depthIndex < TSemantics::MaxDepthCount; ++depthIndex)
 		{
