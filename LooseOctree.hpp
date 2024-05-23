@@ -1,9 +1,28 @@
 ﻿#pragma once
 
-#include <boost/type_traits.hpp>
+#include <boost/call_traits.hpp>
 #include <glm/glm.hpp>
 #include <vector>
 #include <array>
+
+struct ElementId
+{
+	uint32_t nodeIndex;
+	uint32_t elementIndex;
+
+	ElementId()
+		: nodeIndex(uint32_t(-1))
+		, elementIndex(uint32_t(-1))
+	{
+			
+	}
+	ElementId(const uint32_t nodeIndex, const uint32_t elementIndex)
+		: nodeIndex(nodeIndex)
+		, elementIndex(elementIndex)
+	{
+			
+	}
+};
 
 template<typename TElement, typename TSemantics>
 class LooseOctree
@@ -24,6 +43,57 @@ public:
 		}
 	};
 private:
+	struct ChildNodeRef
+	{
+		uint8_t childNodeIndex;
+
+		/** Initialization constructor. */
+		ChildNodeRef(const uint8_t inX, const uint8_t inY, const uint8_t inZ)
+			: childNodeIndex((inX << 0) | (inY << 1) | (inZ << 2))
+		{
+
+		}
+
+		/** Initialized the reference with a child index. */
+		ChildNodeRef(uint8_t inIndex = 0)
+		:	childNodeIndex(inIndex)
+		{
+
+		}
+
+		/** Advances the reference to the next child node.  If this was the last node remain, Index will be 8 which represents null. */
+		inline void Advance()
+		{
+			++childNodeIndex;
+		}
+
+		/** @return true if the reference isn't set. */
+		inline bool IsNULL() const
+		{
+			return childNodeIndex >= 8;
+		}
+
+		inline void SetNULL()
+		{
+			childNodeIndex = 8;
+		}
+
+		inline uint8_t X() const
+		{
+			return (childNodeIndex >> 0) & 1;
+		}
+
+		inline uint8_t Y() const
+		{
+			return (childNodeIndex >> 1) & 1;
+		}
+
+		inline uint8_t Z() const
+		{
+			return (childNodeIndex >> 2) & 1;
+		}
+	};
+
 	struct NodeContext
 	{
 		BoxCenterAndExtent bounds;
@@ -34,6 +104,30 @@ private:
 			, level(level)
 		{
 			
+		}
+		inline ChildNodeRef GetContainingChild(const BoxCenterAndExtent& QueryBounds) const
+		{
+			ChildNodeRef Result{};
+			
+			// Compute the bounds of the node's children.
+			const VectorRegister BoundsCenter = VectorLoadAligned(&Bounds.Center);
+			const VectorRegister ChildCenterOffsetVector = VectorLoadFloat1(&ChildCenterOffset);
+			const VectorRegister NegativeCenterDifference = VectorSubtract(QueryBoundsCenter,VectorSubtract(BoundsCenter,ChildCenterOffsetVector));
+			const VectorRegister PositiveCenterDifference = VectorSubtract(VectorAdd(BoundsCenter,ChildCenterOffsetVector),QueryBoundsCenter);
+
+			// If the query bounds isn't entirely inside the bounding box of the child it's closest to, it's not contained by any of the child nodes.
+			const VectorRegister MinDifference = VectorMin(PositiveCenterDifference,NegativeCenterDifference);
+			if(VectorAnyGreaterThan(VectorAdd(QueryBoundsExtent,MinDifference),VectorLoadFloat1(&ChildExtent)))
+			{
+				Result.SetNULL();
+			}
+			else
+			{
+				// Return the child node that the query is closest to as the containing child.
+				Result.Index = VectorMaskBits(VectorCompareGT(QueryBoundsCenter, BoundsCenter)) & 0x7;
+			}
+
+			return Result;
 		}
 	};
 	struct Node
@@ -71,6 +165,8 @@ private:
 			
 		}
 	};
+
+
 
 	NodeContext rootNodeContext;
 	std::vector<Node> treeNodes;
@@ -148,6 +244,70 @@ public:
 		, levelOffsetAndExtents(BuildOffsetAndExtents(extent))
 	{
 		
+	}
+
+private:
+ 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& elementBox, typename boost::call_traits<TElement>::const_reference element, std::vector<TElement>& tempElementVector)
+	{
+ 		auto& curTreeNode = treeNodes[curNodeIndex];
+ 		auto& curElementVector = elementVectors[curNodeIndex];
+ 		
+		++curTreeNode.inclusiveElementCount;
+		if (curTreeNode.IsLeaf())
+		{
+			// is full and is not minest node
+			if (curElementVector.size() == TSemantics::MaxElementsPerLeaf && curNodeContext.level < TSemantics::MaxDepthCount - 1)
+			{
+				tempElementVector = std::move(curElementVector);
+
+				const NodeIndex childNodeStartIndex = AllocateEightNodes();
+				
+				parentNodeIndexs[ToCompactNodeIndex(childNodeStartIndex)] = curNodeIndex;
+				
+				curTreeNode.ChildNodes = childNodeStartIndex;
+				curTreeNode.InclusiveNumElements = 0;
+
+				for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
+				{
+					const BoxCenterAndExtent childElementBox =  TSemantics::GetBoundingBox(childElement);
+					AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement, tempElementVector);
+				}
+
+				tempElementVector.clear();
+				AddElementInternal(curNodeIndex, curNodeContext, elementBox, element, tempElementVector);
+			}
+			// Can add to this node or this is minest node 
+			else
+			{
+				const uint32_t newElementIndex = curElementVector.emplace_back(element);
+
+				TSemantics::SetElementId(element, ElementId(curNodeIndex, newElementIndex));	
+			}
+		}
+		else
+		{
+			const ChildNodeRef childNodeRef = curNodeContext.GetContainingChild(elementBox);
+			if (childNodeRef.IsNULL())
+			{
+				int ElementIndex = TreeElements[curNodeIndex].Emplace(element);
+				SetElementId(element, FOctreeElementId2(curNodeIndex, ElementIndex));
+				return;
+			}
+			else
+			{
+				FNodeIndex ChildNodeIndex = TreeNodes[curNodeIndex].ChildNodes + childNodeRef.Index;
+				FOctreeNodeContext ChildNodeContext = curNodeContext.GetChildContext(childNodeRef);
+				AddElementInternal(ChildNodeIndex, ChildNodeContext, elementBox, element, tempElementVector);
+				return;
+			}
+		}
+	}
+public:
+	inline void AddElement(typename boost::call_traits<TElement>::const_reference newElement)
+	{
+		std::vector<TElement> TempElementVector;
+		const BoxCenterAndExtent ElementBounds(TSemantics::GetBoundingBox(newElement));
+		AddElementInternal(0, rootNodeContext, ElementBounds, newElement, TempElementVector);
 	}
 
 };
