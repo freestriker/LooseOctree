@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 
+
 struct ElementId
 {
 	uint32_t nodeIndex;
@@ -61,6 +62,12 @@ private:
 
 		}
 
+		ChildNodeRef(const glm::bvec3& para)
+		:	 childNodeIndex(((para.x ? 1 : 0) << 0) | ((para.y ? 1 : 0) << 1) | ((para.z ? 1 : 0) << 2))
+		{
+			
+		}
+
 		/** Advances the reference to the next child node.  If this was the last node remain, Index will be 8 which represents null. */
 		inline void Advance()
 		{
@@ -105,30 +112,9 @@ private:
 		{
 			
 		}
-		inline ChildNodeRef GetContainingChild(const BoxCenterAndExtent& QueryBounds) const
-		{
-			ChildNodeRef Result{};
-			
-			// Compute the bounds of the node's children.
-			const VectorRegister BoundsCenter = VectorLoadAligned(&Bounds.Center);
-			const VectorRegister ChildCenterOffsetVector = VectorLoadFloat1(&ChildCenterOffset);
-			const VectorRegister NegativeCenterDifference = VectorSubtract(QueryBoundsCenter,VectorSubtract(BoundsCenter,ChildCenterOffsetVector));
-			const VectorRegister PositiveCenterDifference = VectorSubtract(VectorAdd(BoundsCenter,ChildCenterOffsetVector),QueryBoundsCenter);
+		inline ChildNodeRef GetContainingChild(const BoxCenterAndExtent& QueryBounds) const;
+		
 
-			// If the query bounds isn't entirely inside the bounding box of the child it's closest to, it's not contained by any of the child nodes.
-			const VectorRegister MinDifference = VectorMin(PositiveCenterDifference,NegativeCenterDifference);
-			if(VectorAnyGreaterThan(VectorAdd(QueryBoundsExtent,MinDifference),VectorLoadFloat1(&ChildExtent)))
-			{
-				Result.SetNULL();
-			}
-			else
-			{
-				// Return the child node that the query is closest to as the containing child.
-				Result.Index = VectorMaskBits(VectorCompareGT(QueryBoundsCenter, BoundsCenter)) & 0x7;
-			}
-
-			return Result;
-		}
 	};
 	struct Node
 	{
@@ -311,3 +297,39 @@ public:
 	}
 
 };
+
+template <typename TElement, typename TSemantics>
+typename LooseOctree<TElement, TSemantics>::ChildNodeRef LooseOctree<TElement, TSemantics>::NodeContext::GetContainingChild(const BoxCenterAndExtent& QueryBounds) const
+{
+	ChildNodeRef Result{};
+	
+	// Compute the bounds of the node's children.
+	const auto& BoundsCenter = this->bounds.center;
+
+	const auto& childOffsetAndExtent = levelOffsetAndExtents[this->level + 1];
+	const auto ChildCenterOffsetVector = glm::vec3(childOffsetAndExtent.offset);
+	const auto NegativeCenterDifference = QueryBounds.center - (BoundsCenter - ChildCenterOffsetVector);
+	const auto PositiveCenterDifference = (BoundsCenter + ChildCenterOffsetVector) - QueryBounds.center;
+
+	// If the query bounds isn't entirely inside the bounding box of the child it's closest to, it's not contained by any of the child nodes.
+	const auto MinDifference = glm::min(PositiveCenterDifference, NegativeCenterDifference);
+	if(VectorAnyGreaterThan(VectorAdd(QueryBoundsExtent,MinDifference),VectorLoadFloat1(&ChildExtent)))
+	{
+		Result.SetNULL();
+	}
+	else
+	{
+		// Return the child node that the query is closest to as the containing child.
+		Result.Index = VectorMaskBits(VectorCompareGT(QueryBoundsCenter, BoundsCenter)) & 0x7;
+	}
+	if(glm::any(glm::greaterThan(QueryBounds.extent + MinDifference, glm::vec3(childOffsetAndExtent.extent))))
+	{
+		Result.SetNULL();
+	}
+	else
+	{
+		Result = ChildNodeRef(glm::greaterThan(QueryBounds.center, BoundsCenter) ? glm::vec3(1): 0);
+	}
+
+	return Result;
+}
