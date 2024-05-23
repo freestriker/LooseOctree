@@ -28,9 +28,8 @@ int main()
 
 	TestElement e0{};
 	e0.bounds = BoxCenterAndExtent(glm::vec3(0), glm::vec3(10));
-	auto e0Ptr = &e0;
 
-	octree.AddElement(e0Ptr);
+	octree.AddElement(&e0);
 	
 	return  0;
 }

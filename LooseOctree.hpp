@@ -238,7 +238,7 @@ public:
 	}
 
 private:
- 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& elementBox, typename boost::call_traits<TElement>::reference element, std::vector<TElement>& tempElementVector)
+ 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& elementBox, typename boost::call_traits<TElement>::const_reference element, std::vector<TElement>& tempElementVector)
 	{
  		auto& curTreeNode = treeNodes[curNodeIndex];
  		auto& curElementVector = elementVectors[curNodeIndex];
@@ -258,7 +258,7 @@ private:
 				curTreeNode.childNodeStartIndex = childNodeStartIndex;
 				curTreeNode.inclusiveElementCount = 0;
 
-				for (typename boost::call_traits<TElement>::reference childElement : tempElementVector)
+				for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
 				{
 					const BoxCenterAndExtent childElementBox = TSemantics::GetBoundingBox(childElement);
 					AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement, tempElementVector);
@@ -296,7 +296,7 @@ private:
 		}
 	}
 public:
-	inline void AddElement(typename boost::call_traits<TElement>::reference newElement)
+	inline void AddElement(typename boost::call_traits<TElement>::const_reference newElement)
 	{
 		std::vector<TElement> tempElementVector;
 		const BoxCenterAndExtent newElementBounds = TSemantics::GetBoundingBox(newElement);
