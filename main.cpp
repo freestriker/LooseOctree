@@ -10,6 +10,7 @@ struct TestSemantics
 	static constexpr float LoosenessRatio = 0.125;
 	static constexpr uint32_t MaxDepthCount = 3;
 	static constexpr uint32_t MaxElementsPerLeaf = 1;
+	static constexpr uint32_t MinInclusiveElementsPerNode = 1;
 	inline static const BoxCenterAndExtent& GetBoundingBox(const TestElement* element)
 	{
 		return element->bounds;

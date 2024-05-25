@@ -300,7 +300,91 @@ public:
 		const BoxCenterAndExtent newElementBounds = TSemantics::GetBoundingBox(newElement);
 		AddElementInternal(0, rootNodeContext, newElementBounds, newElement);
 	}
+private:
+	void CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements)
+	{
+		auto& curElementVector = elementVectors[curNodeIndex];
+		auto& curTreeNode = treeNodes[curNodeIndex];
+		
+		collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
+		curElementVector.clear();
 
+		if (!curTreeNode.IsLeaf())
+		{
+			const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
+			for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
+			{
+				CollapseNodesInternal(childStartIndex + childIndex, collapsedNodeElements);
+			}
+
+			// Mark the node as a leaf.
+			curTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
+
+			FreeEightNodes(childStartIndex);
+		}
+	}
+public:
+	inline void RemoveElement(const ElementId elementId)
+	{
+		// Remove
+		{
+			auto& curElementVector = elementVectors[elementId.nodeIndex];
+			
+			std::swap(curElementVector[elementId.elementIndex], curElementVector.back());
+			curElementVector.pop_back();
+
+			if (elementId.elementIndex < curElementVector.size())
+			{
+				TSemantics::SetElementId(curElementVector[elementId.elementIndex], elementId);
+			}
+		}
+
+		NodeIndex collapseNodeIndex = NONE_NODE_INDEX;
+		{
+			// Update the inclusive element counts for the nodes between the element and the root node,
+			// and find the largest node that is small enough to collapse.
+			NodeIndex nodeIndex = elementId.nodeIndex;
+			while (true)
+			{
+				auto& curTreeNode = treeNodes[nodeIndex];
+				
+				--curTreeNode.inclusiveElementCount;
+				if (curTreeNode.inclusiveElementCount < TSemantics::MinInclusiveElementsPerNode)
+				{
+					collapseNodeIndex = nodeIndex;
+				}
+
+				if (nodeIndex == 0)
+				{
+					break;
+				}
+
+				nodeIndex = parentNodeIndexs[ToCompactNodeIndex(nodeIndex)];			
+			}
+		}
+
+		// Collapse the largest node that was pushed below the threshold for collapse by the removal.
+		if (collapseNodeIndex != NONE_NODE_INDEX && !treeNodes[collapseNodeIndex].IsLeaf())
+		{
+			auto& collapseElementVector = elementVectors[collapseNodeIndex];
+			auto& treeNode = treeNodes[collapseNodeIndex];
+			
+			if (collapseElementVector.size() <= treeNode.inclusiveElementCount)
+			{
+				std::vector<TElement> tempElementStorage{};
+				tempElementStorage.reserve(treeNode.inclusiveElementCount);
+				// Gather the elements contained in this node and its children.
+				CollapseNodesInternal(collapseNodeIndex, tempElementStorage);
+				collapseElementVector = std::move(tempElementStorage);
+
+				for (uint32_t elementIndex = 0; elementIndex < collapseElementVector.size(); ++elementIndex)
+				{
+					// Update the external element id for the element that's being collapsed.
+					TSemantics::SetElementId(collapseElementVector[elementIndex], ElementId(collapseNodeIndex, elementIndex));
+				}
+			}
+		}
+	}
 };
 
 template <typename TElement, typename TSemantics>
