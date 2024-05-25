@@ -323,6 +323,24 @@ private:
 			FreeEightNodes(childStartIndex);
 		}
 	}
+	void CollapseNodesInternal(const NodeIndex curNodeIndex)
+	{
+		auto& curTreeNode = treeNodes[curNodeIndex];
+
+		if (!curTreeNode.IsLeaf())
+		{
+			const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
+			for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
+			{
+				CollapseNodesInternal(childStartIndex + childIndex);
+			}
+
+			// Mark the node as a leaf.
+			curTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
+
+			FreeEightNodes(childStartIndex);
+		}
+	}
 public:
 	inline void RemoveElement(const ElementId elementId)
 	{
@@ -369,7 +387,7 @@ public:
 			auto& collapseElementVector = elementVectors[collapseNodeIndex];
 			auto& treeNode = treeNodes[collapseNodeIndex];
 			
-			if (collapseElementVector.size() <= treeNode.inclusiveElementCount)
+			if (collapseElementVector.size() < treeNode.inclusiveElementCount)
 			{
 				std::vector<TElement> tempElementStorage{};
 				tempElementStorage.reserve(treeNode.inclusiveElementCount);
@@ -382,6 +400,10 @@ public:
 					// Update the external element id for the element that's being collapsed.
 					TSemantics::SetElementId(collapseElementVector[elementIndex], ElementId(collapseNodeIndex, elementIndex));
 				}
+			}
+			else if(collapseElementVector.size() == treeNode.inclusiveElementCount)
+			{
+				CollapseNodesInternal(collapseNodeIndex);
 			}
 		}
 	}
