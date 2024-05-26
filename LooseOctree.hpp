@@ -41,6 +41,13 @@ struct BoxCenterAndExtent
 	{
 			
 	}
+	static inline bool Intersect(const BoxCenterAndExtent& A, const BoxCenterAndExtent& B)
+	{
+		const glm::vec3 centerDifference = glm::abs(A.center - B.center);
+		const glm::vec3 compositeExtent = A.extent + B.extent;
+		
+		return glm::any(glm::greaterThan(centerDifference, compositeExtent));
+	}
 };
 
 template<typename TElement, typename TSemantics>
@@ -62,7 +69,7 @@ private:
 		}
 
 		/** Initialized the reference with a child index. */
-		ChildNodeRef(uint8_t inIndex = 0)
+		ChildNodeRef(const uint8_t inIndex = 0)
 		:	childNodeIndex(inIndex)
 		{
 
@@ -105,8 +112,63 @@ private:
 		{
 			return (childNodeIndex >> 2) & 1;
 		}
-
 	};
+	
+	class ChildNodeSubset
+	{
+	public:
+
+		union
+		{
+			struct 
+			{
+				uint32_t positiveX : 1;
+				uint32_t positiveY : 1;
+				uint32_t positiveZ : 1;
+				uint32_t negativeX : 1;
+				uint32_t negativeY : 1;
+				uint32_t negativeZ : 1;
+			};
+
+			struct
+			{
+				/** Only the bits for the children on the positive side of the splits. */
+				uint32_t positiveChildBits : 3;
+
+				/** Only the bits for the children on the negative side of the splits. */
+				uint32_t negativeChildBits : 3;
+			};
+
+			/** All the bits corresponding to the child bits. */
+			uint32_t childBits : 6;
+
+			/** All the bits used to store the subset. */
+			uint32_t allBits;
+		};
+
+		/** Initializes the subset to be empty. */
+		ChildNodeSubset()
+		:	allBits(0)
+		{}
+
+		/** Initializes the subset to contain a single node. */
+		ChildNodeSubset(const ChildNodeRef childRef)
+		:	allBits(0)
+		{
+			// The positive child bits correspond to the child index, and the negative to the NOT of the child index.
+			positiveChildBits = childRef.childNodeIndex;
+			negativeChildBits = ~childRef.childNodeIndex;
+		}
+
+		/** Determines whether the subset contains a specific node. */
+		inline bool Contains(const ChildNodeRef childRef) const
+		{
+			// This subset contains the child if it has all the bits set that are set for the subset containing only the child node.
+			const ChildNodeSubset childSubset(childRef);
+			return (childBits & childSubset.childBits) == childSubset.childBits;
+		}
+	};
+	
 	struct NodeContext
 	{
 		BoxCenterAndExtent bounds;
@@ -204,8 +266,9 @@ private:
 	}
 
 	inline ChildNodeRef GetContainingChild(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
-	inline NodeContext GetChildContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const;
+	inline NodeContext GetChildNodeContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const;
 	inline glm::vec3 GetChildOffsetVec(const NodeContext& nodeContext, const uint32_t i) const;
+	inline ChildNodeSubset GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
 
 	static inline std::array<OffsetAndExtent, TSemantics::MaxDepthCount> BuildOffsetAndExtents(const float extent)
 	{
@@ -288,7 +351,7 @@ private:
 			else
 			{
 				const NodeIndex childNodeIndex = curTreeNode.childNodeStartIndex + childNodeRef.childNodeIndex;
-				const NodeContext childNodeContext = GetChildContext(curNodeContext, childNodeRef);
+				const NodeContext childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
 				AddElementInternal(childNodeIndex, childNodeContext, elementBox, element);
 				return;
 			}
@@ -407,6 +470,52 @@ public:
 			}
 		}
 	}
+public:
+	template<typename IterateAllElementsFunc>
+	inline void FindAllElements(const IterateAllElementsFunc& func) const
+	{
+		for (const auto& elementVector: elementVectors)
+		{
+			for (typename boost::call_traits<TElement>::const_reference element: elementVector)
+			{
+				func(element);
+			}
+		}
+	}
+private:
+	template<typename IterateFunc>
+	void FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& boxBounds, const IterateFunc& func) const
+	{
+		if (treeNodes[curNodeIndex].inclusiveElementCount > 0)
+		{
+			for (typename boost::call_traits<TElement>::const_reference element: elementVectors[curNodeIndex])
+			{
+				if (BoxCenterAndExtent::Intersect(TSemantics::GetBoundingBox(element), boxBounds))
+				{
+					func(element);
+				}
+			}
+
+			if (!treeNodes[curNodeIndex].IsLeaf())
+			{
+				const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, boxBounds);
+				const NodeIndex childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
+				for (uint8_t childNodeIndex = 0; childNodeIndex < 8; ++childNodeIndex)
+				{
+					if(intersectingChildSubset.Contains(ChildNodeRef(childNodeIndex)))
+					{
+						FindElementsWithBoundsTestInternal(childNodeStartIndex + childNodeIndex, GetChildNodeContext(curNodeContext, ChildNodeRef(childNodeIndex)), boxBounds, func);
+					}
+				}
+			}
+		}
+	}
+public:
+	template<typename IterateBoundsFunc>
+	inline void FindElementsWithBoundsTest(const BoxCenterAndExtent& boxBounds, const IterateBoundsFunc& func) const
+	{
+		FindElementsWithBoundsTestInternal(0, rootNodeContext, boxBounds, func);
+	}
 };
 
 template <typename TElement, typename TSemantics>
@@ -430,7 +539,7 @@ typename LooseOctree<TElement, TSemantics>::ChildNodeRef LooseOctree<TElement, T
 }
 
 template <typename TElement, typename TSemantics>
-typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TSemantics>::GetChildContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const
+typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TSemantics>::GetChildNodeContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const
 {
 	const auto& childOffsetAndExtent = levelOffsetAndExtents[nodeContext.level + 1];
 
@@ -455,4 +564,30 @@ glm::vec3 LooseOctree<TElement, TSemantics>::GetChildOffsetVec(const NodeContext
 	const auto childNodeCenterOffset = glm::mix(glm::vec3(childOffsetAndExtent.offset), glm::vec3(-childOffsetAndExtent.offset), flag);
 	
 	return childNodeCenterOffset;
+}
+
+template <typename TElement, typename TSemantics>
+typename LooseOctree<TElement, TSemantics>::ChildNodeSubset LooseOctree<TElement, TSemantics>::GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const
+{
+	// Load the query bounding box values as VectorRegisters.
+	const glm::vec3 queryBoundsMax = queryBounds.center + queryBounds.extent;
+	const glm::vec3 queryBoundsMin = queryBounds.center - queryBounds.extent;
+	
+	const auto& childOffsetAndExtent = this->levelOffsetAndExtents[nodeContext.level + 1];
+	// Compute the bounds of the node's children.
+	const glm::vec3 positiveChildBoundsMin = nodeContext.bounds.center + glm::vec3(childOffsetAndExtent.offset) - glm::vec3(childOffsetAndExtent.extent);
+	const glm::vec3 negativeChildBoundsMax = nodeContext.bounds.center - glm::vec3(childOffsetAndExtent.offset) + glm::vec3(childOffsetAndExtent.extent);
+	
+	// Intersect the query bounds with the node's children's bounds.
+	const auto positiveChildBitsResult = glm::greaterThan(queryBoundsMax, positiveChildBoundsMin);
+	const auto negativeChildBitsResult = glm::lessThanEqual(queryBoundsMin, negativeChildBoundsMax);
+	
+	ChildNodeSubset result{};
+	result.positiveX = positiveChildBitsResult.x ? 1: 0;
+	result.positiveY = positiveChildBitsResult.y ? 1: 0;
+	result.positiveZ = positiveChildBitsResult.z ? 1: 0;
+	result.negativeX = negativeChildBitsResult.x ? 1: 0;
+	result.negativeY = negativeChildBitsResult.y ? 1: 0;
+	result.negativeZ = negativeChildBitsResult.z ? 1: 0;
+	return result;
 }
