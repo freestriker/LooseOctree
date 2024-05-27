@@ -260,7 +260,7 @@ private:
 
 	void FreeEightNodes(const NodeIndex nodeStartIndex)
 	{
-		std::fill_n(treeNodes.begin() + nodeStartIndex, 8, Node(NONE_NODE_INDEX, 0));
+		std::fill_n(treeNodes.begin() + nodeStartIndex, 8, Node());
 		parentNodeIndexs[ToCompactNodeIndex(nodeStartIndex)] = NONE_NODE_INDEX;
 		freeNodeStartIndexs.emplace_back(ToCompactNodeIndex(nodeStartIndex));
 	}
@@ -407,6 +407,7 @@ public:
 		{
 			auto& curElementVector = elementVectors[elementId.nodeIndex];
 			
+			TSemantics::SetElementId(curElementVector[elementId.elementIndex], ElementId());
 			std::swap(curElementVector[elementId.elementIndex], curElementVector.back());
 			curElementVector.pop_back();
 
@@ -445,7 +446,8 @@ public:
 		{
 			auto& collapseElementVector = elementVectors[collapseNodeIndex];
 			auto& treeNode = treeNodes[collapseNodeIndex];
-			
+
+			// Child node have elements
 			if (collapseElementVector.size() < treeNode.inclusiveElementCount)
 			{
 				std::vector<TElement> tempElementStorage{};
@@ -460,6 +462,7 @@ public:
 					TSemantics::SetElementId(collapseElementVector[elementIndex], ElementId(collapseNodeIndex, elementIndex));
 				}
 			}
+			// Child node are empty
 			else if(collapseElementVector.size() == treeNode.inclusiveElementCount)
 			{
 				CollapseNodesInternal(collapseNodeIndex);

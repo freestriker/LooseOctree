@@ -49,9 +49,10 @@ int main()
 		std::cout << "nodeIndex: " << element->elementId.nodeIndex << " elementIndex: " << element->elementId.elementIndex <<std::endl;
 	});
 
-	// octree.RemoveElement(e20.elementId);
-	// octree.RemoveElement(e2.elementId);
-	// octree.RemoveElement(e1.elementId);
-	// octree.RemoveElement(e0.elementId);
+	octree.RemoveElement(e0.elementId);
+	octree.RemoveElement(e1.elementId);
+	octree.RemoveElement(e2.elementId);
+	octree.RemoveElement(e20.elementId);
+	
 	return  0;
 }
