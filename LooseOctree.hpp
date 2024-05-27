@@ -362,9 +362,12 @@ private:
 	{
 		auto& curElementVector = elementVectors[curNodeIndex];
 		auto& curTreeNode = treeNodes[curNodeIndex];
-		
-		collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
-		curElementVector.clear();
+
+		if(!curElementVector.empty())
+		{
+			collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
+			curElementVector.clear();
+		}
 
 		if (!curTreeNode.IsLeaf())
 		{
@@ -489,27 +492,29 @@ public:
 	}
 private:
 	template<typename IterateFunc>
-	void FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& boxBounds, const IterateFunc& func) const
+	void FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& testBounds, const IterateFunc& func) const
 	{
 		if (treeNodes[curNodeIndex].inclusiveElementCount > 0)
 		{
+			// Test all local node element.
 			for (typename boost::call_traits<TElement>::const_reference element: elementVectors[curNodeIndex])
 			{
-				if (BoxCenterAndExtent::Intersect(TSemantics::GetBoundingBox(element), boxBounds))
+				if (BoxCenterAndExtent::Intersect(TSemantics::GetBoundingBox(element), testBounds))
 				{
 					func(element);
 				}
 			}
 
+			// Test eight child nodes.
 			if (!treeNodes[curNodeIndex].IsLeaf())
 			{
-				const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, boxBounds);
+				const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, testBounds);
 				const NodeIndex childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
 				for (uint8_t childNodeIndex = 0; childNodeIndex < 8; ++childNodeIndex)
 				{
 					if(intersectingChildSubset.Contains(ChildNodeRef(childNodeIndex)))
 					{
-						FindElementsWithBoundsTestInternal(childNodeStartIndex + childNodeIndex, GetChildNodeContext(curNodeContext, ChildNodeRef(childNodeIndex)), boxBounds, func);
+						FindElementsWithBoundsTestInternal(childNodeStartIndex + childNodeIndex, GetChildNodeContext(curNodeContext, ChildNodeRef(childNodeIndex)), testBounds, func);
 					}
 				}
 			}
