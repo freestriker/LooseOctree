@@ -46,7 +46,7 @@ struct BoxCenterAndExtent
 		const glm::vec3 centerDifference = glm::abs(A.center - B.center);
 		const glm::vec3 compositeExtent = A.extent + B.extent;
 		
-		return glm::any(glm::greaterThan(centerDifference, compositeExtent));
+		return !glm::any(glm::greaterThan(centerDifference, compositeExtent));
 	}
 };
 

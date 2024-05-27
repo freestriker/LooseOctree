@@ -41,7 +41,8 @@ int main()
 	e2.bounds = BoxCenterAndExtent(glm::vec3(1.75), glm::vec3(1));
 	octree.AddElement(&e2);
 
-	TestElement e20 = e2;
+	TestElement e20{};
+	e20.bounds = BoxCenterAndExtent(glm::vec3(1.75), glm::vec3(2));
 	octree.AddElement(&e20);
 
 	octree.FindAllElements([](TestElement* element)->void
@@ -49,6 +50,11 @@ int main()
 		std::cout << "nodeIndex: " << element->elementId.nodeIndex << " elementIndex: " << element->elementId.elementIndex <<std::endl;
 	});
 
+	octree.FindElementsWithBoundsTest(BoxCenterAndExtent(glm::vec3(0), glm::vec3(0.5)), [](TestElement* element)->void
+	{
+		std::cout << "nodeIndex: " << element->elementId.nodeIndex << " elementIndex: " << element->elementId.elementIndex <<std::endl;
+	});
+	
 	octree.RemoveElement(e0.elementId);
 	octree.RemoveElement(e1.elementId);
 	octree.RemoveElement(e2.elementId);
