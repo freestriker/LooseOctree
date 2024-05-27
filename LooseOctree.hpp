@@ -81,19 +81,13 @@ private:
 			
 		}
 
-		/** Advances the reference to the next child node.  If this was the last node remain, Index will be 8 which represents null. */
-		inline void Advance()
-		{
-			++childNodeIndex;
-		}
-
 		/** @return true if the reference isn't set. */
-		inline bool IsNULL() const
+		inline bool IsNull() const
 		{
 			return childNodeIndex >= 8;
 		}
 
-		inline void SetNULL()
+		inline void SetNull()
 		{
 			childNodeIndex = 8;
 		}
@@ -265,7 +259,7 @@ private:
 		freeNodeStartIndexs.emplace_back(ToCompactNodeIndex(nodeStartIndex));
 	}
 
-	inline ChildNodeRef GetContainingChild(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
+	inline ChildNodeRef GetContainingChildNodeRef(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
 	inline NodeContext GetChildNodeContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const;
 	inline glm::vec3 GetChildOffsetVec(const NodeContext& nodeContext, const uint32_t i) const;
 	inline ChildNodeSubset GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
@@ -301,15 +295,18 @@ public:
 	}
 
 private:
- 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& elementBox, typename boost::call_traits<TElement>::const_reference element)
+ 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& newElementBounds, typename boost::call_traits<TElement>::const_reference newElement)
 	{
+ 		// treeNodes may be chanaged, so we must index it every time.
 		++treeNodes[curNodeIndex].inclusiveElementCount;
+ 		// Current node is a leaf node, it can be branched or just inserted.
 		if (treeNodes[curNodeIndex].IsLeaf())
 		{
-			// is full and is not minest node
+			// Current node is full and is not minimum, so this node should b branched.
 			if (elementVectors[curNodeIndex].size() == TSemantics::MaxElementsPerLeaf && curNodeContext.level < TSemantics::MaxDepthCount - 1)
 			{
-				auto tempElementVector = std::move(elementVectors[curNodeIndex]);
+				std::vector<TElement> tempElementVector{};
+				std::swap(tempElementVector, elementVectors[curNodeIndex]);
 
 				const NodeIndex childNodeStartIndex = AllocateEightNodes();
 				
@@ -318,46 +315,48 @@ private:
 				treeNodes[curNodeIndex].childNodeStartIndex = childNodeStartIndex;
 				treeNodes[curNodeIndex].inclusiveElementCount = 0;
 
+				// Re-insert
 				for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
 				{
 					const BoxCenterAndExtent childElementBox = TSemantics::GetBoundingBox(childElement);
 					AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement);
 				}
-				
-				AddElementInternal(curNodeIndex, curNodeContext, elementBox, element);
+
+				// Insert
+				AddElementInternal(curNodeIndex, curNodeContext, newElementBounds, newElement);
 			}
-			// Can add to this node or this is minest node 
+			// Current node is not full or is minimum, so we can just insert it.
 			else
 			{
 				const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
-				elementVectors[curNodeIndex].emplace_back(element);
+				elementVectors[curNodeIndex].emplace_back(newElement);
 				
-				TSemantics::SetElementId(element, ElementId(curNodeIndex, newElementIndex));	
+				TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
 			}
 		}
+ 		// Current node is a usual node, it can be distributed or inserted.
 		else
 		{
-			const ChildNodeRef childNodeRef = GetContainingChild(curNodeContext, elementBox);
-			if (childNodeRef.IsNULL())
+			const ChildNodeRef childNodeRef = GetContainingChildNodeRef(curNodeContext, newElementBounds);
+			if (childNodeRef.IsNull())
 			{
 				const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
-				elementVectors[curNodeIndex].emplace_back(element);
-				TSemantics::SetElementId(element, ElementId(curNodeIndex, newElementIndex));	
+				elementVectors[curNodeIndex].emplace_back(newElement);
+				
+				TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
 			}
 			else
 			{
 				const NodeIndex childNodeIndex = treeNodes[curNodeIndex].childNodeStartIndex + childNodeRef.childNodeIndex;
 				const NodeContext childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
-				AddElementInternal(childNodeIndex, childNodeContext, elementBox, element);
-				return;
+				AddElementInternal(childNodeIndex, childNodeContext, newElementBounds, newElement);
 			}
 		}
 	}
 public:
 	inline void AddElement(typename boost::call_traits<TElement>::const_reference newElement)
 	{
-		const BoxCenterAndExtent newElementBounds = TSemantics::GetBoundingBox(newElement);
-		AddElementInternal(0, rootNodeContext, newElementBounds, newElement);
+		AddElementInternal(0, rootNodeContext, TSemantics::GetBoundingBox(newElement), newElement);
 	}
 private:
 	void CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements)
@@ -518,15 +517,14 @@ public:
 };
 
 template <typename TElement, typename TSemantics>
-typename LooseOctree<TElement, TSemantics>::ChildNodeRef LooseOctree<TElement, TSemantics>::GetContainingChild(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const
+typename LooseOctree<TElement, TSemantics>::ChildNodeRef LooseOctree<TElement, TSemantics>::GetContainingChildNodeRef(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const
 {
 	const auto& childOffsetAndExtent = levelOffsetAndExtents[nodeContext.level + 1];
 	
-	const auto childOffset = glm::vec3(childOffsetAndExtent.offset);
-	const auto negativeCenterDifference = queryBounds.center - (nodeContext.bounds.center - childOffset);
-	const auto positiveCenterDifference = (nodeContext.bounds.center + childOffset) - queryBounds.center;
+	const auto negativeCenterDifference = queryBounds.center - (nodeContext.bounds.center - childOffsetAndExtent.offset);
+	const auto positiveCenterDifference = (nodeContext.bounds.center + childOffsetAndExtent.offset) - queryBounds.center;
 	
-	const auto minDifference = glm::min(positiveCenterDifference, negativeCenterDifference);
+	const auto minDifference = glm::min(negativeCenterDifference, positiveCenterDifference);
 	if(glm::any(glm::greaterThan(queryBounds.extent + minDifference, glm::vec3(childOffsetAndExtent.extent))))
 	{
 		return ChildNodeRef(8);
@@ -543,8 +541,8 @@ typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TS
 	const auto& childOffsetAndExtent = levelOffsetAndExtents[nodeContext.level + 1];
 
 	constexpr auto mask =  glm::uvec3(1u, 2u, 4u);
-	const auto flag = glm::equal(mask, glm::uvec3(childNodeRef.childNodeIndex) & mask);
-	const auto childNodeCenterOffset = glm::mix(glm::vec3(-childOffsetAndExtent.offset), glm::vec3(+childOffsetAndExtent.offset), flag);
+	const auto flags = glm::equal(mask, glm::uvec3(childNodeRef.childNodeIndex) & mask);
+	const auto childNodeCenterOffset = glm::mix(glm::vec3(-childOffsetAndExtent.offset), glm::vec3(+childOffsetAndExtent.offset), flags);
 
 	BoxCenterAndExtent childNodeBounds{};
 	childNodeBounds.center = nodeContext.bounds.center + childNodeCenterOffset;
