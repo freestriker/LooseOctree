@@ -261,7 +261,6 @@ private:
 
 	inline ChildNodeRef GetContainingChildNodeRef(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
 	inline NodeContext GetChildNodeContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const;
-	inline glm::vec3 GetChildOffsetVec(const NodeContext& nodeContext, const uint32_t i) const;
 	inline ChildNodeSubset GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
 
 	static inline std::array<OffsetAndExtent, TSemantics::MaxDepthCount> BuildOffsetAndExtents(const float extent)
@@ -374,8 +373,7 @@ private:
 			{
 				CollapseNodesInternal(childStartIndex + childIndex, collapsedNodeElements);
 			}
-
-			// Mark the node as a leaf.
+			
 			curTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
 
 			FreeEightNodes(childStartIndex);
@@ -417,9 +415,8 @@ public:
 		}
 
 		NodeIndex collapseNodeIndex = NONE_NODE_INDEX;
+		// Update the count from bottom to top and find the node index that need to collapse.
 		{
-			// Update the inclusive element counts for the nodes between the element and the root node,
-			// and find the largest node that is small enough to collapse.
 			NodeIndex nodeIndex = elementId.nodeIndex;
 			while (true)
 			{
@@ -440,29 +437,39 @@ public:
 			}
 		}
 
-		// Collapse the largest node that was pushed below the threshold for collapse by the removal.
+		// Can be collapsed and is not a leaf node (retains leaf nodes).
 		if (collapseNodeIndex != NONE_NODE_INDEX && !treeNodes[collapseNodeIndex].IsLeaf())
 		{
 			auto& collapseElementVector = elementVectors[collapseNodeIndex];
-			auto& treeNode = treeNodes[collapseNodeIndex];
+			auto& collapseTreeNode = treeNodes[collapseNodeIndex];
 
-			// Child node have elements
-			if (collapseElementVector.size() < treeNode.inclusiveElementCount)
+			// Child nodes have elements, so elements need be re-insert.
+			if (collapseElementVector.size() < collapseTreeNode.inclusiveElementCount)
 			{
-				std::vector<TElement> tempElementStorage{};
-				tempElementStorage.reserve(treeNode.inclusiveElementCount);
-				// Gather the elements contained in this node and its children.
-				CollapseNodesInternal(collapseNodeIndex, tempElementStorage);
-				collapseElementVector = std::move(tempElementStorage);
+				const uint32_t transferedElementIndex = static_cast<uint32_t>(collapseElementVector.size());
+				
+				collapseElementVector.reserve(collapseTreeNode.inclusiveElementCount);
 
-				for (uint32_t elementIndex = 0; elementIndex < collapseElementVector.size(); ++elementIndex)
+				// Collapse eight child nodes.
 				{
-					// Update the external element id for the element that's being collapsed.
+					const NodeIndex childStartIndex = collapseTreeNode.childNodeStartIndex;
+					for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
+					{
+						CollapseNodesInternal(childStartIndex + childIndex, collapseElementVector);
+					}
+				
+					collapseTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
+
+					FreeEightNodes(childStartIndex);
+				}
+
+				for (uint32_t elementIndex = transferedElementIndex; elementIndex < collapseTreeNode.inclusiveElementCount; ++elementIndex)
+				{
 					TSemantics::SetElementId(collapseElementVector[elementIndex], ElementId(collapseNodeIndex, elementIndex));
 				}
 			}
-			// Child node are empty
-			else if(collapseElementVector.size() == treeNode.inclusiveElementCount)
+			// Child nodes are empty, so just collapse them.
+			else if(collapseElementVector.size() == collapseTreeNode.inclusiveElementCount)
 			{
 				CollapseNodesInternal(collapseNodeIndex);
 			}
@@ -549,18 +556,6 @@ typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TS
 	childNodeBounds.extent = glm::vec3(childOffsetAndExtent.extent);
 	
 	return NodeContext(childNodeBounds, nodeContext.level + 1);
-}
-
-template <typename TElement, typename TSemantics>
-glm::vec3 LooseOctree<TElement, TSemantics>::GetChildOffsetVec(const NodeContext& nodeContext, const uint32_t i) const
-{
-	const auto& childOffsetAndExtent = levelOffsetAndExtents[nodeContext.level + 1];
-
-	constexpr auto mask =  glm::uvec3(1u, 2u, 4u);
-	const auto flag = glm::equal(mask, glm::uvec3(i) & mask);
-	const auto childNodeCenterOffset = glm::mix(glm::vec3(childOffsetAndExtent.offset), glm::vec3(-childOffsetAndExtent.offset), flag);
-	
-	return childNodeCenterOffset;
 }
 
 template <typename TElement, typename TSemantics>
