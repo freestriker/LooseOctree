@@ -59,6 +59,10 @@ struct BoxCenterAndExtent
 template<typename TElement, typename TSemantics>
 class LooseOctree
 {
+	static_assert(TSemantics::MaxDepthCount >= 1, "MaxDepthCount must be greater than or equal to 1");
+	static_assert(TSemantics::MaxElementsPerLeaf >= 1, "MaxElementsPerLeaf must be greater than or equal to 1");
+	static_assert(TSemantics::MinInclusiveElementsPerNode >= 1, "MinInclusiveElementsPerNode must be greater than or equal to 1");
+	static_assert(TSemantics::MaxElementsPerLeaf >= TSemantics::MinInclusiveElementsPerNode, "MaxElementsPerLeaf must be greater than or equal to MinInclusiveElementsPerNode");
 private:
 	using NodeIndex = uint32_t;
 	struct ChildNodeRef
