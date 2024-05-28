@@ -4,7 +4,9 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <array>
+#include<span>
 
+constexpr uint32_t NONE_INDEX = static_cast<uint32_t>(-1);
 
 struct ElementId
 {
@@ -12,8 +14,8 @@ struct ElementId
 	uint32_t elementIndex;
 
 	ElementId()
-		: nodeIndex(uint32_t(-1))
-		, elementIndex(uint32_t(-1))
+		: nodeIndex(NONE_INDEX)
+		, elementIndex(NONE_INDEX)
 	{
 			
 	}
@@ -22,6 +24,10 @@ struct ElementId
 		, elementIndex(elementIndex)
 	{
 			
+	}
+	bool IsValidId() const
+	{
+		return nodeIndex != NONE_INDEX && elementIndex != NONE_INDEX;
 	}
 };
 struct BoxCenterAndExtent
@@ -53,58 +59,27 @@ struct BoxCenterAndExtent
 template<typename TElement, typename TSemantics>
 class LooseOctree
 {
-public:
-	using NodeIndex = uint32_t;
-	static constexpr uint32_t NONE_NODE_INDEX = static_cast<uint32_t>(-1);
 private:
+	using NodeIndex = uint32_t;
 	struct ChildNodeRef
 	{
 		uint8_t childNodeIndex;
 
-		/** Initialization constructor. */
-		ChildNodeRef(const uint8_t inX, const uint8_t inY, const uint8_t inZ)
-			: childNodeIndex((inX << 0) | (inY << 1) | (inZ << 2))
+		ChildNodeRef(const uint8_t childNodeIndex)
+			: childNodeIndex(childNodeIndex)
 		{
-
+			
 		}
-
-		/** Initialized the reference with a child index. */
-		ChildNodeRef(const uint8_t inIndex = 0)
-		:	childNodeIndex(inIndex)
-		{
-
-		}
-
+		
 		ChildNodeRef(const glm::bvec3& para)
-		:	 childNodeIndex(((para.x ? 1 : 0) << 0) | ((para.y ? 1 : 0) << 1) | ((para.z ? 1 : 0) << 2))
+			: childNodeIndex(((para.x ? 1u : 0u) << 0) | ((para.y ? 1u : 0u) << 1) | ((para.z ? 1u : 0u) << 2))
 		{
 			
 		}
 
-		/** @return true if the reference isn't set. */
 		inline bool IsNull() const
 		{
 			return childNodeIndex >= 8;
-		}
-
-		inline void SetNull()
-		{
-			childNodeIndex = 8;
-		}
-
-		inline uint8_t X() const
-		{
-			return (childNodeIndex >> 0) & 1;
-		}
-
-		inline uint8_t Y() const
-		{
-			return (childNodeIndex >> 1) & 1;
-		}
-
-		inline uint8_t Z() const
-		{
-			return (childNodeIndex >> 2) & 1;
 		}
 	};
 	
@@ -126,38 +101,28 @@ private:
 
 			struct
 			{
-				/** Only the bits for the children on the positive side of the splits. */
 				uint32_t positiveChildBits : 3;
-
-				/** Only the bits for the children on the negative side of the splits. */
 				uint32_t negativeChildBits : 3;
 			};
 
-			/** All the bits corresponding to the child bits. */
 			uint32_t childBits : 6;
 
-			/** All the bits used to store the subset. */
 			uint32_t allBits;
 		};
 
-		/** Initializes the subset to be empty. */
 		ChildNodeSubset()
 		:	allBits(0)
 		{}
 
-		/** Initializes the subset to contain a single node. */
 		ChildNodeSubset(const ChildNodeRef childRef)
 		:	allBits(0)
 		{
-			// The positive child bits correspond to the child index, and the negative to the NOT of the child index.
 			positiveChildBits = childRef.childNodeIndex;
 			negativeChildBits = ~childRef.childNodeIndex;
 		}
 
-		/** Determines whether the subset contains a specific node. */
 		inline bool Contains(const ChildNodeRef childRef) const
 		{
-			// This subset contains the child if it has all the bits set that are set for the subset containing only the child node.
 			const ChildNodeSubset childSubset(childRef);
 			return (childBits & childSubset.childBits) == childSubset.childBits;
 		}
@@ -168,8 +133,8 @@ private:
 		BoxCenterAndExtent bounds;
 		uint32_t level;
 
-		NodeContext(const BoxCenterAndExtent& box, const uint32_t level = 0)
-			: bounds(box)
+		NodeContext(const BoxCenterAndExtent& bounds, const uint32_t level = 0)
+			: bounds(bounds)
 			, level(level)
 		{
 			
@@ -182,11 +147,11 @@ private:
 
 		bool IsLeaf() const
 		{
-			return childNodeStartIndex == NONE_NODE_INDEX;
+			return childNodeStartIndex == NONE_INDEX;
 		}
 
 		Node()
-			: childNodeStartIndex(NONE_NODE_INDEX)
+			: childNodeStartIndex(NONE_INDEX)
 			, inclusiveElementCount(0)
 		{
 			
@@ -211,7 +176,7 @@ private:
 		}
 	};
 	
-	NodeContext rootNodeContext;
+	const NodeContext rootNodeContext;
 	std::vector<Node> treeNodes;
 	// Indexed by compacted indexs
 	std::vector<NodeIndex> parentNodeIndexs;
@@ -234,13 +199,13 @@ private:
 
 	NodeIndex AllocateEightNodes()
 	{
-		NodeIndex nodeStartIndex = NONE_NODE_INDEX;
+		NodeIndex nodeStartIndex = NONE_INDEX;
 		if (freeNodeStartIndexs.empty())
 		{
 			nodeStartIndex = static_cast<uint32_t>(treeNodes.size());
 
 			treeNodes.insert(treeNodes.end(), 8, Node());
-			parentNodeIndexs.emplace_back(NONE_NODE_INDEX);
+			parentNodeIndexs.emplace_back(NONE_INDEX);
 			elementVectors.insert(elementVectors.end(), 8, {});
 		}
 		else
@@ -255,7 +220,7 @@ private:
 	void FreeEightNodes(const NodeIndex nodeStartIndex)
 	{
 		std::fill_n(treeNodes.begin() + nodeStartIndex, 8, Node());
-		parentNodeIndexs[ToCompactNodeIndex(nodeStartIndex)] = NONE_NODE_INDEX;
+		parentNodeIndexs[ToCompactNodeIndex(nodeStartIndex)] = NONE_INDEX;
 		freeNodeStartIndexs.emplace_back(ToCompactNodeIndex(nodeStartIndex));
 	}
 
@@ -263,24 +228,7 @@ private:
 	inline NodeContext GetChildNodeContext(const NodeContext& nodeContext, const ChildNodeRef childNodeRef) const;
 	inline ChildNodeSubset GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const;
 
-	static inline std::array<OffsetAndExtent, TSemantics::MaxDepthCount> BuildOffsetAndExtents(const float extent)
-	{
-		float parentExtent = extent;
-		
-		std::array<OffsetAndExtent, TSemantics::MaxDepthCount> offsetAndExtents{ };
-		offsetAndExtents[0] = OffsetAndExtent(0, extent);
-		for(uint32_t depthIndex = 1; depthIndex < TSemantics::MaxDepthCount; ++depthIndex)
-		{
-			const float tightChildExtent = parentExtent * 0.5f;
-			const float looseChildExtent = tightChildExtent * (1.0f + TSemantics::LoosenessRatio);
-
-			offsetAndExtents[depthIndex] = OffsetAndExtent(parentExtent - looseChildExtent, looseChildExtent);
-
-			parentExtent = looseChildExtent;
-		}
-
-		return offsetAndExtents;
-	}
+	static inline std::array<OffsetAndExtent, TSemantics::MaxDepthCount> BuildOffsetAndExtents(const float extent);
 public:
 	LooseOctree(const glm::vec3& center, const float extent)
 		: rootNodeContext(BoxCenterAndExtent(center, glm::vec3(extent)))
@@ -294,114 +242,19 @@ public:
 	}
 
 private:
- 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& newElementBounds, typename boost::call_traits<TElement>::const_reference newElement)
-	{
- 		// treeNodes may be chanaged, so we must index it every time.
-		++treeNodes[curNodeIndex].inclusiveElementCount;
- 		// Current node is a leaf node, it can be branched or just inserted.
-		if (treeNodes[curNodeIndex].IsLeaf())
-		{
-			// Current node is full and is not minimum, so this node should b branched.
-			if (elementVectors[curNodeIndex].size() == TSemantics::MaxElementsPerLeaf && curNodeContext.level < TSemantics::MaxDepthCount - 1)
-			{
-				std::vector<TElement> tempElementVector{};
-				std::swap(tempElementVector, elementVectors[curNodeIndex]);
+ 	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& newElementBounds, typename boost::call_traits<TElement>::const_reference newElement);
+	void CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements);
+	void CollapseNodesInternal(const NodeIndex curNodeIndex);
+	template<typename TIterateFunc>
+	void FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& testBounds, const TIterateFunc& func) const;
 
-				const NodeIndex childNodeStartIndex = AllocateEightNodes();
-				
-				parentNodeIndexs[ToCompactNodeIndex(childNodeStartIndex)] = curNodeIndex;
-				
-				treeNodes[curNodeIndex].childNodeStartIndex = childNodeStartIndex;
-				treeNodes[curNodeIndex].inclusiveElementCount = 0;
-
-				// Re-insert
-				for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
-				{
-					const BoxCenterAndExtent childElementBox = TSemantics::GetBoundingBox(childElement);
-					AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement);
-				}
-
-				// Insert
-				AddElementInternal(curNodeIndex, curNodeContext, newElementBounds, newElement);
-			}
-			// Current node is not full or is minimum, so we can just insert it.
-			else
-			{
-				const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
-				elementVectors[curNodeIndex].emplace_back(newElement);
-				
-				TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
-			}
-		}
- 		// Current node is a usual node, it can be distributed or inserted.
-		else
-		{
-			const ChildNodeRef childNodeRef = GetContainingChildNodeRef(curNodeContext, newElementBounds);
-			if (childNodeRef.IsNull())
-			{
-				const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
-				elementVectors[curNodeIndex].emplace_back(newElement);
-				
-				TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
-			}
-			else
-			{
-				const NodeIndex childNodeIndex = treeNodes[curNodeIndex].childNodeStartIndex + childNodeRef.childNodeIndex;
-				const NodeContext childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
-				AddElementInternal(childNodeIndex, childNodeContext, newElementBounds, newElement);
-			}
-		}
-	}
 public:
 	inline void AddElement(typename boost::call_traits<TElement>::const_reference newElement)
 	{
 		AddElementInternal(0, rootNodeContext, TSemantics::GetBoundingBox(newElement), newElement);
 	}
-private:
-	void CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements)
-	{
-		auto& curElementVector = elementVectors[curNodeIndex];
-		auto& curTreeNode = treeNodes[curNodeIndex];
 
-		if(!curElementVector.empty())
-		{
-			collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
-			curElementVector.clear();
-		}
-
-		if (!curTreeNode.IsLeaf())
-		{
-			const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
-			for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
-			{
-				CollapseNodesInternal(childStartIndex + childIndex, collapsedNodeElements);
-			}
-			
-			curTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
-
-			FreeEightNodes(childStartIndex);
-		}
-	}
-	void CollapseNodesInternal(const NodeIndex curNodeIndex)
-	{
-		auto& curTreeNode = treeNodes[curNodeIndex];
-
-		if (!curTreeNode.IsLeaf())
-		{
-			const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
-			for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
-			{
-				CollapseNodesInternal(childStartIndex + childIndex);
-			}
-
-			// Mark the node as a leaf.
-			curTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
-
-			FreeEightNodes(childStartIndex);
-		}
-	}
-public:
-	inline void RemoveElement(const ElementId elementId)
+	void RemoveElement(const ElementId elementId)
 	{
 		// Remove
 		{
@@ -417,7 +270,7 @@ public:
 			}
 		}
 
-		NodeIndex collapseNodeIndex = NONE_NODE_INDEX;
+		NodeIndex collapseNodeIndex = NONE_INDEX;
 		// Update the count from bottom to top and find the node index that need to collapse.
 		{
 			NodeIndex nodeIndex = elementId.nodeIndex;
@@ -441,7 +294,7 @@ public:
 		}
 
 		// Can be collapsed and is not a leaf node (retains leaf nodes).
-		if (collapseNodeIndex != NONE_NODE_INDEX && !treeNodes[collapseNodeIndex].IsLeaf())
+		if (collapseNodeIndex != NONE_INDEX && !treeNodes[collapseNodeIndex].IsLeaf())
 		{
 			auto& collapseElementVector = elementVectors[collapseNodeIndex];
 			auto& collapseTreeNode = treeNodes[collapseNodeIndex];
@@ -461,7 +314,7 @@ public:
 						CollapseNodesInternal(childStartIndex + childIndex, collapseElementVector);
 					}
 				
-					collapseTreeNode.childNodeStartIndex = NONE_NODE_INDEX;
+					collapseTreeNode.childNodeStartIndex = NONE_INDEX;
 
 					FreeEightNodes(childStartIndex);
 				}
@@ -478,7 +331,7 @@ public:
 			}
 		}
 	}
-public:
+
 	template<typename IterateAllElementsFunc>
 	inline void FindAllElements(const IterateAllElementsFunc& func) const
 	{
@@ -490,41 +343,51 @@ public:
 			}
 		}
 	}
-private:
-	template<typename IterateFunc>
-	void FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& testBounds, const IterateFunc& func) const
-	{
-		if (treeNodes[curNodeIndex].inclusiveElementCount > 0)
-		{
-			// Test all local node element.
-			for (typename boost::call_traits<TElement>::const_reference element: elementVectors[curNodeIndex])
-			{
-				if (BoxCenterAndExtent::Intersect(TSemantics::GetBoundingBox(element), testBounds))
-				{
-					func(element);
-				}
-			}
-
-			// Test eight child nodes.
-			if (!treeNodes[curNodeIndex].IsLeaf())
-			{
-				const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, testBounds);
-				const NodeIndex childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
-				for (uint8_t childNodeIndex = 0; childNodeIndex < 8; ++childNodeIndex)
-				{
-					if(intersectingChildSubset.Contains(ChildNodeRef(childNodeIndex)))
-					{
-						FindElementsWithBoundsTestInternal(childNodeStartIndex + childNodeIndex, GetChildNodeContext(curNodeContext, ChildNodeRef(childNodeIndex)), testBounds, func);
-					}
-				}
-			}
-		}
-	}
-public:
+	
 	template<typename IterateBoundsFunc>
-	inline void FindElementsWithBoundsTest(const BoxCenterAndExtent& boxBounds, const IterateBoundsFunc& func) const
+	inline void FindElementsWithBoundsTest(const BoxCenterAndExtent& testBounds, const IterateBoundsFunc& func) const
 	{
-		FindElementsWithBoundsTestInternal(0, rootNodeContext, boxBounds, func);
+		FindElementsWithBoundsTestInternal(0, rootNodeContext, testBounds, func);
+	}
+
+	inline void Clear()
+	{
+		treeNodes.clear();
+		elementVectors.clear();
+		freeNodeStartIndexs.clear();
+		parentNodeIndexs.clear();
+		treeNodes.emplace_back(Node());
+		elementVectors.emplace_back({});
+	}
+	
+	inline TElement& GetElementById(const ElementId elementId)
+	{
+		return elementVectors[elementId.nodeIndex][elementId.elementIndex];
+	}
+	
+	inline const TElement& GetElementById(const ElementId elementId) const
+	{
+		return elementVectors[elementId.nodeIndex][elementId.elementIndex];
+	}
+
+	inline bool IsValidElementId(const ElementId elementId) const
+	{
+		return elementId.IsValidId() && elementId.elementIndex < elementVectors[elementId.nodeIndex].size();
+	}
+
+	inline std::span<const TElement> GetElementsForNode(const NodeIndex nodeIndex) const
+	{
+		return elementVectors[nodeIndex];
+	}
+
+	inline OffsetAndExtent GetNodeLevelOffsetAndExtent(const uint32_t level) const
+	{
+		return levelOffsetAndExtents[level];
+	}
+
+	inline const BoxCenterAndExtent& GetRootBounds() const
+	{
+		return rootNodeContext.bounds;
 	}
 };
 
@@ -556,11 +419,10 @@ typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TS
 	const auto flags = glm::equal(mask, glm::uvec3(childNodeRef.childNodeIndex) & mask);
 	const auto childNodeCenterOffset = glm::mix(glm::vec3(-childOffsetAndExtent.offset), glm::vec3(+childOffsetAndExtent.offset), flags);
 
-	BoxCenterAndExtent childNodeBounds{};
-	childNodeBounds.center = nodeContext.bounds.center + childNodeCenterOffset;
-	childNodeBounds.extent = glm::vec3(childOffsetAndExtent.extent);
-	
-	return NodeContext(childNodeBounds, nodeContext.level + 1);
+	return NodeContext(
+		BoxCenterAndExtent(nodeContext.bounds.center + childNodeCenterOffset, glm::vec3(childOffsetAndExtent.extent)),
+		nodeContext.level + 1
+	);
 }
 
 template <typename TElement, typename TSemantics>
@@ -587,4 +449,161 @@ typename LooseOctree<TElement, TSemantics>::ChildNodeSubset LooseOctree<TElement
 	result.negativeY = negativeChildBitsResult.y ? 1: 0;
 	result.negativeZ = negativeChildBitsResult.z ? 1: 0;
 	return result;
+}
+
+template <typename TElement, typename TSemantics>
+std::array<typename LooseOctree<TElement, TSemantics>::OffsetAndExtent, TSemantics::MaxDepthCount> LooseOctree<TElement, TSemantics>::BuildOffsetAndExtents(const float extent)
+{
+	float parentExtent = extent;
+		
+	std::array<OffsetAndExtent, TSemantics::MaxDepthCount> offsetAndExtents{ };
+	offsetAndExtents[0] = OffsetAndExtent(0, extent);
+	for(uint32_t depthIndex = 1; depthIndex < TSemantics::MaxDepthCount; ++depthIndex)
+	{
+		const float tightChildExtent = parentExtent * 0.5f;
+		const float looseChildExtent = tightChildExtent * (1.0f + TSemantics::LoosenessRatio);
+
+		offsetAndExtents[depthIndex] = OffsetAndExtent(parentExtent - looseChildExtent, looseChildExtent);
+
+		parentExtent = looseChildExtent;
+	}
+
+	return offsetAndExtents;
+}
+
+template <typename TElement, typename TSemantics>
+void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& newElementBounds, typename boost::call_traits<TElement>::const_reference newElement)
+{
+ 	// treeNodes may be chanaged, so we must index it every time.
+	++treeNodes[curNodeIndex].inclusiveElementCount;
+ 	// Current node is a leaf node, it can be branched or just inserted.
+	if (treeNodes[curNodeIndex].IsLeaf())
+	{
+		// Current node is full and is not minimum, so this node should b branched.
+		if (elementVectors[curNodeIndex].size() == TSemantics::MaxElementsPerLeaf && curNodeContext.level < TSemantics::MaxDepthCount - 1)
+		{
+			std::vector<TElement> tempElementVector{};
+			std::swap(tempElementVector, elementVectors[curNodeIndex]);
+
+			const NodeIndex childNodeStartIndex = AllocateEightNodes();
+			
+			parentNodeIndexs[ToCompactNodeIndex(childNodeStartIndex)] = curNodeIndex;
+			
+			treeNodes[curNodeIndex].childNodeStartIndex = childNodeStartIndex;
+			treeNodes[curNodeIndex].inclusiveElementCount = 0;
+
+			// Re-insert
+			for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
+			{
+				const BoxCenterAndExtent childElementBox = TSemantics::GetBoundingBox(childElement);
+				AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement);
+			}
+
+			// Insert
+			AddElementInternal(curNodeIndex, curNodeContext, newElementBounds, newElement);
+		}
+		// Current node is not full or is minimum, so we can just insert it.
+		else
+		{
+			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
+			elementVectors[curNodeIndex].emplace_back(newElement);
+			
+			TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
+		}
+	}
+ 	// Current node is a usual node, it can be distributed or inserted.
+	else
+	{
+		const ChildNodeRef childNodeRef = GetContainingChildNodeRef(curNodeContext, newElementBounds);
+		if (childNodeRef.IsNull())
+		{
+			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
+			elementVectors[curNodeIndex].emplace_back(newElement);
+			
+			TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
+		}
+		else
+		{
+			const NodeIndex childNodeIndex = treeNodes[curNodeIndex].childNodeStartIndex + childNodeRef.childNodeIndex;
+			const NodeContext childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
+			AddElementInternal(childNodeIndex, childNodeContext, newElementBounds, newElement);
+		}
+	}
+}
+
+template <typename TElement, typename TSemantics>
+void LooseOctree<TElement, TSemantics>::CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements)
+{
+	auto& curElementVector = elementVectors[curNodeIndex];
+	auto& curTreeNode = treeNodes[curNodeIndex];
+
+	if(!curElementVector.empty())
+	{
+		collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
+		curElementVector.clear();
+	}
+
+	if (!curTreeNode.IsLeaf())
+	{
+		const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
+		for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
+		{
+			CollapseNodesInternal(childStartIndex + childIndex, collapsedNodeElements);
+		}
+			
+		curTreeNode.childNodeStartIndex = NONE_INDEX;
+
+		FreeEightNodes(childStartIndex);
+	}
+}
+
+template <typename TElement, typename TSemantics>
+void LooseOctree<TElement, TSemantics>::CollapseNodesInternal(const NodeIndex curNodeIndex)
+{
+	auto& curTreeNode = treeNodes[curNodeIndex];
+
+	if (!curTreeNode.IsLeaf())
+	{
+		const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
+		for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
+		{
+			CollapseNodesInternal(childStartIndex + childIndex);
+		}
+
+		// Mark the node as a leaf.
+		curTreeNode.childNodeStartIndex = NONE_INDEX;
+
+		FreeEightNodes(childStartIndex);
+	}
+}
+
+template <typename TElement, typename TSemantics>
+template <typename TIterateFunc>
+void LooseOctree<TElement, TSemantics>::FindElementsWithBoundsTestInternal(const NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& testBounds, const TIterateFunc& func) const
+{
+	if (treeNodes[curNodeIndex].inclusiveElementCount > 0)
+	{
+		// Test all local node element.
+		for (typename boost::call_traits<TElement>::const_reference element: elementVectors[curNodeIndex])
+		{
+			if (BoxCenterAndExtent::Intersect(TSemantics::GetBoundingBox(element), testBounds))
+			{
+				func(element);
+			}
+		}
+
+		// Test eight child nodes.
+		if (!treeNodes[curNodeIndex].IsLeaf())
+		{
+			const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, testBounds);
+			const NodeIndex childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
+			for (uint8_t childNodeIndex = 0; childNodeIndex < 8; ++childNodeIndex)
+			{
+				if(intersectingChildSubset.Contains(ChildNodeRef(childNodeIndex)))
+				{
+					FindElementsWithBoundsTestInternal(childNodeStartIndex + childNodeIndex, GetChildNodeContext(curNodeContext, ChildNodeRef(childNodeIndex)), testBounds, func);
+				}
+			}
+		}
+	}
 }

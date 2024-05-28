@@ -65,6 +65,8 @@ int main()
 		std::cout << "nodeIndex: " << element->elementId.nodeIndex << " elementIndex: " << element->elementId.elementIndex <<std::endl;
 	});
 
+	auto&& elements = octree.GetElementsForNode(0);
+
 	octree.RemoveElement(e1.elementId);
 	octree.RemoveElement(e20.elementId);
 	octree.RemoveElement(e10.elementId);
