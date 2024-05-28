@@ -5,7 +5,7 @@
 struct TestElement
 {
 	BoxCenterAndExtent bounds;
-	ElementId elementId;
+	LooseOctreeElementId elementId;
 };
 struct TestSemantics
 {
@@ -17,7 +17,7 @@ struct TestSemantics
 	{
 		return element->bounds;
 	}
-	inline static void SetElementId(TestElement* element, const ElementId elementId)
+	inline static void SetElementId(TestElement* element, const LooseOctreeElementId elementId)
 	{
 		element->elementId = elementId;
 	}

@@ -4,22 +4,22 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <array>
-#include<span>
+#include <span>
 
 constexpr uint32_t NONE_INDEX = static_cast<uint32_t>(-1);
 
-struct ElementId
+struct LooseOctreeElementId
 {
 	uint32_t nodeIndex;
 	uint32_t elementIndex;
 
-	ElementId()
+	LooseOctreeElementId()
 		: nodeIndex(NONE_INDEX)
 		, elementIndex(NONE_INDEX)
 	{
 			
 	}
-	ElementId(const uint32_t nodeIndex, const uint32_t elementIndex)
+	LooseOctreeElementId(const uint32_t nodeIndex, const uint32_t elementIndex)
 		: nodeIndex(nodeIndex)
 		, elementIndex(elementIndex)
 	{
@@ -254,13 +254,13 @@ public:
 		AddElementInternal(0, rootNodeContext, TSemantics::GetBoundingBox(newElement), newElement);
 	}
 
-	void RemoveElement(const ElementId elementId)
+	void RemoveElement(const LooseOctreeElementId elementId)
 	{
 		// Remove
 		{
 			auto& curElementVector = elementVectors[elementId.nodeIndex];
 			
-			TSemantics::SetElementId(curElementVector[elementId.elementIndex], ElementId());
+			TSemantics::SetElementId(curElementVector[elementId.elementIndex], LooseOctreeElementId());
 			std::swap(curElementVector[elementId.elementIndex], curElementVector.back());
 			curElementVector.pop_back();
 
@@ -321,7 +321,7 @@ public:
 
 				for (uint32_t elementIndex = transferedElementIndex; elementIndex < collapseTreeNode.inclusiveElementCount; ++elementIndex)
 				{
-					TSemantics::SetElementId(collapseElementVector[elementIndex], ElementId(collapseNodeIndex, elementIndex));
+					TSemantics::SetElementId(collapseElementVector[elementIndex], LooseOctreeElementId(collapseNodeIndex, elementIndex));
 				}
 			}
 			// Child nodes are empty, so just collapse them.
@@ -360,17 +360,17 @@ public:
 		elementVectors.emplace_back({});
 	}
 	
-	inline TElement& GetElementById(const ElementId elementId)
+	inline TElement& GetElementById(const LooseOctreeElementId elementId)
 	{
 		return elementVectors[elementId.nodeIndex][elementId.elementIndex];
 	}
 	
-	inline const TElement& GetElementById(const ElementId elementId) const
+	inline const TElement& GetElementById(const LooseOctreeElementId elementId) const
 	{
 		return elementVectors[elementId.nodeIndex][elementId.elementIndex];
 	}
 
-	inline bool IsValidElementId(const ElementId elementId) const
+	inline bool IsValidElementId(const LooseOctreeElementId elementId) const
 	{
 		return elementId.IsValidId() && elementId.elementIndex < elementVectors[elementId.nodeIndex].size();
 	}
@@ -508,7 +508,7 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
 			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
 			elementVectors[curNodeIndex].emplace_back(newElement);
 			
-			TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
+			TSemantics::SetElementId(newElement, LooseOctreeElementId(curNodeIndex, newElementIndex));	
 		}
 	}
  	// Current node is a usual node, it can be distributed or inserted.
@@ -520,7 +520,7 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
 			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
 			elementVectors[curNodeIndex].emplace_back(newElement);
 			
-			TSemantics::SetElementId(newElement, ElementId(curNodeIndex, newElementIndex));	
+			TSemantics::SetElementId(newElement, LooseOctreeElementId(curNodeIndex, newElementIndex));	
 		}
 		else
 		{
