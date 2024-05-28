@@ -49,10 +49,10 @@ struct BoxCenterAndExtent
 	}
 	static inline bool Intersect(const BoxCenterAndExtent& A, const BoxCenterAndExtent& B)
 	{
-		const glm::vec3 centerDifference = glm::abs(A.center - B.center);
-		const glm::vec3 compositeExtent = A.extent + B.extent;
+		const auto centerDifference = glm::abs(A.center - B.center);
+		const auto compositeExtent = A.extent + B.extent;
 		
-		return !glm::any(glm::greaterThan(centerDifference, compositeExtent));
+		return glm::all(glm::lessThanEqual(centerDifference, compositeExtent));
 	}
 };
 
@@ -69,6 +69,11 @@ private:
 	{
 		uint8_t childNodeIndex;
 
+		ChildNodeRef()
+			: childNodeIndex(8)
+		{
+			
+		}
 		ChildNodeRef(const uint8_t childNodeIndex)
 			: childNodeIndex(childNodeIndex)
 		{
@@ -87,39 +92,44 @@ private:
 		}
 	};
 	
-	class ChildNodeSubset
+	struct ChildNodeSubset
 	{
-	public:
-
 		union
 		{
 			struct 
 			{
-				uint32_t positiveX : 1;
-				uint32_t positiveY : 1;
-				uint32_t positiveZ : 1;
-				uint32_t negativeX : 1;
-				uint32_t negativeY : 1;
-				uint32_t negativeZ : 1;
+				uint8_t positiveX : 1;
+				uint8_t positiveY : 1;
+				uint8_t positiveZ : 1;
+				uint8_t negativeX : 1;
+				uint8_t negativeY : 1;
+				uint8_t negativeZ : 1;
 			};
 
 			struct
 			{
-				uint32_t positiveChildBits : 3;
-				uint32_t negativeChildBits : 3;
+				uint8_t positiveChildBits : 3;
+				uint8_t negativeChildBits : 3;
 			};
 
-			uint32_t childBits : 6;
+			uint8_t childBits : 6;
 
-			uint32_t allBits;
+			uint8_t allBits;
 		};
-
-		ChildNodeSubset()
-		:	allBits(0)
-		{}
+		
+		ChildNodeSubset(const glm::bvec3& positiveChildBitsResult, const glm::bvec3& negativeChildBitsResult)
+			: allBits(0)
+		{
+			positiveX = positiveChildBitsResult.x ? 1: 0;
+			positiveY = positiveChildBitsResult.y ? 1: 0;
+			positiveZ = positiveChildBitsResult.z ? 1: 0;
+			negativeX = negativeChildBitsResult.x ? 1: 0;
+			negativeY = negativeChildBitsResult.y ? 1: 0;
+			negativeZ = negativeChildBitsResult.z ? 1: 0;
+		}
 
 		ChildNodeSubset(const ChildNodeRef childRef)
-		:	allBits(0)
+			: allBits(0)
 		{
 			positiveChildBits = childRef.childNodeIndex;
 			negativeChildBits = ~childRef.childNodeIndex;
@@ -160,6 +170,13 @@ private:
 		{
 			
 		}
+
+		Node(const NodeIndex childNodeStartIndex, const uint32_t inclusiveElementCount)
+			: childNodeStartIndex(childNodeStartIndex)
+			, inclusiveElementCount(inclusiveElementCount)
+		{
+			
+		}
 	};
 	struct OffsetAndExtent
 	{
@@ -191,22 +208,22 @@ private:
 
 	static inline NodeIndex ToCompactNodeIndex(const NodeIndex nodeIndex)
 	{
-		// 1 for the existed root
+		// 1 for the existed root node, 8 for child nodes.
 		return (nodeIndex - 1) / 8;
 	}
 
 	static inline NodeIndex FromCompactNodeIndex(const NodeIndex compactNodeIndex)
 	{
-		// 1 for the existed root
+		// 1 for the existed root node, 8 for child nodes.
 		return compactNodeIndex * 8 + 1;
 	}
 
-	NodeIndex AllocateEightNodes()
+	inline NodeIndex AllocateEightNodes()
 	{
 		NodeIndex nodeStartIndex = NONE_INDEX;
 		if (freeNodeStartIndexs.empty())
 		{
-			nodeStartIndex = static_cast<uint32_t>(treeNodes.size());
+			nodeStartIndex = static_cast<NodeIndex>(treeNodes.size());
 
 			treeNodes.insert(treeNodes.end(), 8, Node());
 			parentNodeIndexs.emplace_back(NONE_INDEX);
@@ -221,7 +238,7 @@ private:
 		return nodeStartIndex;
 	}
 
-	void FreeEightNodes(const NodeIndex nodeStartIndex)
+	inline void FreeEightNodes(const NodeIndex nodeStartIndex)
 	{
 		std::fill_n(treeNodes.begin() + nodeStartIndex, 8, Node());
 		parentNodeIndexs[ToCompactNodeIndex(nodeStartIndex)] = NONE_INDEX;
@@ -247,6 +264,7 @@ public:
 
 private:
  	void AddElementInternal(NodeIndex curNodeIndex, const NodeContext& curNodeContext, const BoxCenterAndExtent& newElementBounds, typename boost::call_traits<TElement>::const_reference newElement);
+	template<bool TNeedInsert>
 	void CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements);
 	void CollapseNodesInternal(const NodeIndex curNodeIndex);
 	template<typename TIterateFunc>
@@ -260,7 +278,7 @@ public:
 
 	void RemoveElement(const LooseOctreeElementId elementId)
 	{
-		// Remove
+		// Remove element.
 		{
 			auto& curElementVector = elementVectors[elementId.nodeIndex];
 			
@@ -298,7 +316,7 @@ public:
 			}
 		}
 
-		// Can be collapsed and is not a leaf node (retains leaf nodes).
+		// Can be collapsed and is not a leaf node(retains leaf nodes).
 		if (collapseNodeIndex != NONE_INDEX && !treeNodes[collapseNodeIndex].IsLeaf())
 		{
 			auto& collapseElementVector = elementVectors[collapseNodeIndex];
@@ -307,22 +325,11 @@ public:
 			// Child nodes have elements, so elements need be re-insert.
 			if (collapseElementVector.size() < collapseTreeNode.inclusiveElementCount)
 			{
-				const uint32_t transferedElementIndex = static_cast<uint32_t>(collapseElementVector.size());
+				const auto transferedElementIndex = static_cast<uint32_t>(collapseElementVector.size());
 				
 				collapseElementVector.reserve(collapseTreeNode.inclusiveElementCount);
 
-				// Collapse eight child nodes.
-				{
-					const NodeIndex childStartIndex = collapseTreeNode.childNodeStartIndex;
-					for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
-					{
-						CollapseNodesInternal(childStartIndex + childIndex, collapseElementVector);
-					}
-				
-					collapseTreeNode.childNodeStartIndex = NONE_INDEX;
-
-					FreeEightNodes(childStartIndex);
-				}
+				CollapseNodesInternal<false>(collapseNodeIndex, collapseElementVector);
 
 				for (uint32_t elementIndex = transferedElementIndex; elementIndex < collapseTreeNode.inclusiveElementCount; ++elementIndex)
 				{
@@ -377,7 +384,7 @@ public:
 
 	inline bool IsValidElementId(const LooseOctreeElementId elementId) const
 	{
-		return elementId.IsValidId() && elementId.elementIndex < elementVectors[elementId.nodeIndex].size();
+		return elementId.IsValidId() && elementId.nodeIndex < elementVectors.size() && elementId.elementIndex < elementVectors[elementId.nodeIndex].size();
 	}
 
 	inline std::span<const TElement> GetElementsForNode(const NodeIndex nodeIndex) const
@@ -407,7 +414,7 @@ typename LooseOctree<TElement, TSemantics>::ChildNodeRef LooseOctree<TElement, T
 	const auto minDifference = glm::min(negativeCenterDifference, positiveCenterDifference);
 	if(glm::any(glm::greaterThan(queryBounds.extent + minDifference, glm::vec3(childOffsetAndExtent.extent))))
 	{
-		return ChildNodeRef(8);
+		return ChildNodeRef();
 	}
 	else
 	{
@@ -433,40 +440,31 @@ typename LooseOctree<TElement, TSemantics>::NodeContext LooseOctree<TElement, TS
 template <typename TElement, typename TSemantics>
 typename LooseOctree<TElement, TSemantics>::ChildNodeSubset LooseOctree<TElement, TSemantics>::GetIntersectingChildNodeSubset(const NodeContext& nodeContext, const BoxCenterAndExtent& queryBounds) const
 {
-	// Load the query bounding box values as VectorRegisters.
-	const glm::vec3 queryBoundsMax = queryBounds.center + queryBounds.extent;
-	const glm::vec3 queryBoundsMin = queryBounds.center - queryBounds.extent;
+	const auto queryBoundsMax = queryBounds.center + queryBounds.extent;
+	const auto queryBoundsMin = queryBounds.center - queryBounds.extent;
 	
-	const auto& childOffsetAndExtent = this->levelOffsetAndExtents[nodeContext.level + 1];
-	// Compute the bounds of the node's children.
-	const glm::vec3 positiveChildBoundsMin = nodeContext.bounds.center + glm::vec3(childOffsetAndExtent.offset) - glm::vec3(childOffsetAndExtent.extent);
-	const glm::vec3 negativeChildBoundsMax = nodeContext.bounds.center - glm::vec3(childOffsetAndExtent.offset) + glm::vec3(childOffsetAndExtent.extent);
+	const auto& childOffsetAndExtent = levelOffsetAndExtents[nodeContext.level + 1];
+
+	const auto positiveChildBoundsMin = nodeContext.bounds.center + childOffsetAndExtent.offset - childOffsetAndExtent.extent;
+	const auto negativeChildBoundsMax = nodeContext.bounds.center - childOffsetAndExtent.offset + childOffsetAndExtent.extent;
 	
-	// Intersect the query bounds with the node's children's bounds.
 	const auto positiveChildBitsResult = glm::greaterThan(queryBoundsMax, positiveChildBoundsMin);
 	const auto negativeChildBitsResult = glm::lessThanEqual(queryBoundsMin, negativeChildBoundsMax);
 	
-	ChildNodeSubset result{};
-	result.positiveX = positiveChildBitsResult.x ? 1: 0;
-	result.positiveY = positiveChildBitsResult.y ? 1: 0;
-	result.positiveZ = positiveChildBitsResult.z ? 1: 0;
-	result.negativeX = negativeChildBitsResult.x ? 1: 0;
-	result.negativeY = negativeChildBitsResult.y ? 1: 0;
-	result.negativeZ = negativeChildBitsResult.z ? 1: 0;
-	return result;
+	return ChildNodeSubset(positiveChildBitsResult, negativeChildBitsResult);
 }
 
 template <typename TElement, typename TSemantics>
 std::array<typename LooseOctree<TElement, TSemantics>::OffsetAndExtent, TSemantics::MaxDepthCount> LooseOctree<TElement, TSemantics>::BuildOffsetAndExtents(const float extent)
 {
-	float parentExtent = extent;
+	auto parentExtent = extent;
 		
 	std::array<OffsetAndExtent, TSemantics::MaxDepthCount> offsetAndExtents{ };
 	offsetAndExtents[0] = OffsetAndExtent(0, extent);
 	for(uint32_t depthIndex = 1; depthIndex < TSemantics::MaxDepthCount; ++depthIndex)
 	{
-		const float tightChildExtent = parentExtent * 0.5f;
-		const float looseChildExtent = tightChildExtent * (1.0f + TSemantics::LoosenessRatio);
+		const auto tightChildExtent = parentExtent * 0.5f;
+		const auto looseChildExtent = tightChildExtent * (1.0f + TSemantics::LoosenessRatio);
 
 		offsetAndExtents[depthIndex] = OffsetAndExtent(parentExtent - looseChildExtent, looseChildExtent);
 
@@ -490,26 +488,24 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
 			std::vector<TElement> tempElementVector{};
 			std::swap(tempElementVector, elementVectors[curNodeIndex]);
 
-			const NodeIndex childNodeStartIndex = AllocateEightNodes();
-			
+			// Allocate child nodes.
+			const auto childNodeStartIndex = AllocateEightNodes();
 			parentNodeIndexs[ToCompactNodeIndex(childNodeStartIndex)] = curNodeIndex;
-			
-			treeNodes[curNodeIndex].childNodeStartIndex = childNodeStartIndex;
-			treeNodes[curNodeIndex].inclusiveElementCount = 0;
+			treeNodes[curNodeIndex] = Node(childNodeStartIndex, 0);
 
-			// Re-insert
-			for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
+			// Re-insert existed elements.
+			for (typename boost::call_traits<TElement>::const_reference childElement: tempElementVector)
 			{
 				AddElementInternal(curNodeIndex, curNodeContext, TSemantics::GetBoundingBox(childElement), childElement);
 			}
 
-			// Insert
+			// Insert new element.
 			AddElementInternal(curNodeIndex, curNodeContext, newElementBounds, newElement);
 		}
 		// Current node is not full or is minimum, so we can just insert it.
 		else
 		{
-			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
+			const auto newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
 			elementVectors[curNodeIndex].emplace_back(newElement);
 			
 			TSemantics::SetElementId(newElement, LooseOctreeElementId(curNodeIndex, newElementIndex));	
@@ -518,10 +514,10 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
  	// Current node is a usual node, it can be distributed or inserted.
 	else
 	{
-		const ChildNodeRef childNodeRef = GetContainingChildNodeRef(curNodeContext, newElementBounds);
+		const auto childNodeRef = GetContainingChildNodeRef(curNodeContext, newElementBounds);
 		if (childNodeRef.IsNull())
 		{
-			const uint32_t newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
+			const auto newElementIndex = static_cast<uint32_t>(elementVectors[curNodeIndex].size());
 			elementVectors[curNodeIndex].emplace_back(newElement);
 			
 			TSemantics::SetElementId(newElement, LooseOctreeElementId(curNodeIndex, newElementIndex));	
@@ -529,19 +525,20 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
 		else
 		{
 			const NodeIndex childNodeIndex = treeNodes[curNodeIndex].childNodeStartIndex + childNodeRef.childNodeIndex;
-			const NodeContext childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
+			const auto childNodeContext = GetChildNodeContext(curNodeContext, childNodeRef);
 			AddElementInternal(childNodeIndex, childNodeContext, newElementBounds, newElement);
 		}
 	}
 }
 
 template <typename TElement, typename TSemantics>
+template <bool TNeedInsert>
 void LooseOctree<TElement, TSemantics>::CollapseNodesInternal(const NodeIndex curNodeIndex, std::vector<TElement>& collapsedNodeElements)
 {
 	auto& curElementVector = elementVectors[curNodeIndex];
 	auto& curTreeNode = treeNodes[curNodeIndex];
 
-	if(!curElementVector.empty())
+	if(TNeedInsert && !curElementVector.empty())
 	{
 		collapsedNodeElements.insert(collapsedNodeElements.end(), std::make_move_iterator(curElementVector.begin()), std::make_move_iterator(curElementVector.end()));
 		curElementVector.clear();
@@ -552,9 +549,10 @@ void LooseOctree<TElement, TSemantics>::CollapseNodesInternal(const NodeIndex cu
 		const NodeIndex childStartIndex = curTreeNode.childNodeStartIndex;
 		for (uint8_t childIndex = 0; childIndex < 8; ++childIndex)
 		{
-			CollapseNodesInternal(childStartIndex + childIndex, collapsedNodeElements);
+			CollapseNodesInternal<true>(childStartIndex + childIndex, collapsedNodeElements);
 		}
 			
+		// Mark the node as a leaf.
 		curTreeNode.childNodeStartIndex = NONE_INDEX;
 
 		FreeEightNodes(childStartIndex);
@@ -599,8 +597,8 @@ void LooseOctree<TElement, TSemantics>::FindElementsWithBoundsTestInternal(const
 		// Test eight child nodes.
 		if (!treeNodes[curNodeIndex].IsLeaf())
 		{
-			const ChildNodeSubset intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, testBounds);
-			const NodeIndex childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
+			const auto intersectingChildSubset = GetIntersectingChildNodeSubset(curNodeContext, testBounds);
+			const auto childNodeStartIndex = treeNodes[curNodeIndex].childNodeStartIndex;
 			for (uint8_t childNodeIndex = 0; childNodeIndex < 8; ++childNodeIndex)
 			{
 				if(intersectingChildSubset.Contains(ChildNodeRef(childNodeIndex)))
