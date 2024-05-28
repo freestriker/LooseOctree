@@ -180,14 +180,14 @@ private:
 		}
 	};
 	
-	const NodeContext rootNodeContext;
+	NodeContext rootNodeContext;
 	std::vector<Node> treeNodes;
 	// Indexed by compacted indexs
 	std::vector<NodeIndex> parentNodeIndexs;
 	std::vector<std::vector<TElement>> elementVectors;
 	// Compacted indexs
 	std::vector<NodeIndex> freeNodeStartIndexs;
-	const std::array<OffsetAndExtent, TSemantics::MaxDepthCount> levelOffsetAndExtents;
+	std::array<OffsetAndExtent, TSemantics::MaxDepthCount> levelOffsetAndExtents;
 
 	static inline NodeIndex ToCompactNodeIndex(const NodeIndex nodeIndex)
 	{
