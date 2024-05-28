@@ -265,6 +265,7 @@ public:
 			auto& curElementVector = elementVectors[elementId.nodeIndex];
 			
 			TSemantics::SetElementId(curElementVector[elementId.elementIndex], LooseOctreeElementId());
+			
 			std::swap(curElementVector[elementId.elementIndex], curElementVector.back());
 			curElementVector.pop_back();
 
@@ -499,8 +500,7 @@ void LooseOctree<TElement, TSemantics>::AddElementInternal(NodeIndex curNodeInde
 			// Re-insert
 			for (typename boost::call_traits<TElement>::const_reference childElement : tempElementVector)
 			{
-				const BoxCenterAndExtent childElementBox = TSemantics::GetBoundingBox(childElement);
-				AddElementInternal(curNodeIndex, curNodeContext, childElementBox, childElement);
+				AddElementInternal(curNodeIndex, curNodeContext, TSemantics::GetBoundingBox(childElement), childElement);
 			}
 
 			// Insert
